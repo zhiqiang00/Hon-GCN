@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from pygcn.utils import load_data, accuracy, load_hon_data, link_prediction
+from pygcn.utils import load_data, accuracy, load_hon_data, link_prediction, load_hon_data_label
 from pygcn.models import GCN
 
 # Training settings
@@ -20,7 +20,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--fastmode', action='store_true', default=False,
                     help='Validate during training pass.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
-parser.add_argument('--epochs', type=int, default=500,
+parser.add_argument('--epochs', type=int, default=100,
                     help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='Initial learning rate.')
@@ -41,14 +41,15 @@ if args.cuda:
 
 # Load data
 adj, features, pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, \
-idx_neg_test = load_hon_data(edge_path=r"../data/traces-simulated/edges.txt",
-                             content_path=r"../data/traces-simulated/traces.content")
+idx_neg_test = load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
+                        edge_path_origin="../data/traces-simulated-original/edges_label.txt",
+                        content_path=r"..\data\traces-simulated-original\traces.content")
 
 y_true_test = np.array([1] * len(idx_pos_test) + [0] * len(idx_neg_test))
 # Model and optimizer
 model = GCN(nfeat=features.shape[1],
             nhid=args.hidden,
-            nclass=7, # 最后输出结果为7维
+            nclass=7,  # 最后输出结果为7维
             dropout=args.dropout)
 optimizer = optim.Adam(model.parameters(),
                        lr=args.lr, weight_decay=args.weight_decay)

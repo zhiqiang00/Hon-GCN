@@ -37,14 +37,13 @@ def get_Graph(Path, node_id_mapping):
     f = open(Path)
     for line in f.readlines():
         node1, node2 = line.strip().split()[:2]
-#        node1 = int(node1)
-#        node2 = int(node2)
         edges.append([node_id_mapping[node1], node_id_mapping[node2]])
     f.close()
     G = nx.Graph(edges)
     nx.info(G)
     print("generate graph done!")
     return G
+
 
 
 # 用于生成节点的度作为节点的属性
@@ -122,7 +121,7 @@ def load_hon_data(edge_path=r"..\data\traces-simulated-original\edges.txt",
         line = file.readline()
         while line:
             line = line.split()
-            edges_unordered.append([line[0],line[1]])
+            edges_unordered.append([line[0], line[1]])
             line = file.readline()
     edges_unordered = np.array(edges_unordered)
 #    print(list(map(idx_map.get, edges_unordered.flatten())))
@@ -158,6 +157,69 @@ def load_hon_data(edge_path=r"..\data\traces-simulated-original\edges.txt",
 
     pos_edges, neg_edges, idx_pos_train, idx_pos_val, \
     idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test = sample_pos_neg_sets(G)
+
+    features = torch.FloatTensor(np.array(features.todense()))
+    # labels = torch.LongTensor(np.where(labels)[1])
+    adj = sparse_mx_to_torch_sparse_tensor(adj)
+
+    idx_pos_train = torch.LongTensor(idx_pos_train)
+    idx_pos_val = torch.LongTensor(idx_pos_val)
+    idx_pos_test = torch.LongTensor(idx_pos_test)
+
+    idx_neg_train = torch.LongTensor(idx_neg_train)
+    idx_neg_val = torch.LongTensor(idx_neg_val)
+    idx_neg_test = torch.LongTensor(idx_neg_test)
+
+    return adj, features, pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test
+
+
+def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
+                        edge_path_origin="../data/traces-simulated-original/edges_label.txt",
+                        content_path=r"..\data\traces-simulated-original\traces.content"):
+    """Load citation network dataset (cora only for now)"""
+    print('Loading  dataset...')
+
+    # 生成原始网络的train val test 数据集
+    edge_origin = pd.read_csv(edge_path_origin)
+    length_edge_path_origin = edge_origin.shape[0]
+    idx_origin_train = range(int(length_edge_path_origin * 0.1))
+    idx_origin_val = range(int(length_edge_path_origin * 0.1), int(length_edge_path_origin * 0.2))
+    idx_origin_test = range(int(length_edge_path_origin * 0.2), int(length_edge_path_origin * 1))
+
+    origin_train_label = edge_origin.iloc[idx_origin_train]['label']
+    origin_val_label = edge_origin.iloc[idx_origin_val]['label']
+    origin_test_label = edge_origin.iloc[idx_origin_test]['label']
+
+
+    idx_features = pd.read_csv(content_path, dtype=np.dtype(str))
+    features = sp.csr_matrix(np.expand_dims(idx_features.iloc[:, 1], 1), dtype=np.float32)
+    # labels = encode_onehot(idx_features_labels[:, -1])
+
+    # build graph
+#    idx = np.array([i for i in range(len(idx_features))], dtype=np.int32)  # 自己的高阶数据
+    idx = idx_features.values[:, 0]
+    idx_map = {j: i for i, j in enumerate(idx)}
+
+    # 读取高阶网络的边
+    edge_hon = pd.read_csv(edge_path_hon)
+    edges_unordered = np.array(edge_hon.iloc[:, 1:3])
+    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
+                     dtype=np.int32).reshape(edges_unordered.shape)
+    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
+                        shape=(idx_features.shape[0], idx_features.shape[0]),
+                        dtype=np.float32)
+
+    # build symmetric adjacency matrix
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+
+    # features = normalize(features)
+    adj = normalize(adj + sp.eye(adj.shape[0]))
+
+    # G = get_Graph(edges_unordered, idx_map)
+
+    G = nx.Graph(edges)
+    pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test \
+        = sample_pos_neg_sets_label(G, edge_hon, origin_train_label, origin_val_label, origin_test_label)
 
     features = torch.FloatTensor(np.array(features.todense()))
     # labels = torch.LongTensor(np.where(labels)[1])
@@ -296,6 +358,32 @@ def sample_pos_neg_sets(G, data_usage=1.0):
     return np.array(pos_edges), np.array(
         neg_edges), idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test
 
+
+# 采样正负节点 使用节点映射
+def sample_pos_neg_sets_label(G, edge, origin_train_label, origin_val_label, origin_test_label, data_usage=1.0):
+    # 高阶网络的正采样边
+    id_pos_edge_train_hon = edge[edge['label'] in origin_train_label].index.tolist()
+    id_pos_edge_val_hon = edge[edge['label'] in origin_val_label].index.tolist()
+    id_pos_edge_test_hon = edge[edge['label'] in origin_test_label].index.tolist()
+    pos_edges = pd.concat([edge[edge['label'] in origin_train_label], edge[edge['label'] in origin_val_label],
+                           edge[edge['label'] in origin_test_label]])
+    lenght_hon_pos_edges = len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + len(id_pos_edge_test_hon)
+
+
+    set_size = 2
+    neg_edges = np.array(sample_neg_sets(G, lenght_hon_pos_edges, set_size=set_size), dtype=np.int32)
+    length_neg_edges = neg_edges.shape[0]
+    tmp = neg_edges[-(lenght_hon_pos_edges - length_neg_edges):, :]  # 把去重删除的neg边补齐
+    neg_edges = np.append(neg_edges, tmp, axis=0)
+    length_neg_edges = neg_edges.shape[0]
+
+    # 暂时写死，后面需要根据数据进行调整
+    idx_neg_train = range(int(length_neg_edges * 0.1))
+    idx_neg_val = range(int(length_neg_edges * 0.1), int(length_neg_edges * 0.2))
+    idx_neg_test = range(int(length_neg_edges * 0.2), int(length_neg_edges * 1))
+
+    return np.array(pos_edges), np.array(
+        neg_edges), id_pos_edge_train_hon, id_pos_edge_val_hon, id_pos_edge_test_hon, idx_neg_train, idx_neg_val, idx_neg_test
 
 def sample_neg_sets(G, n_samples, set_size):
     neg_sets = []
