@@ -12,6 +12,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from sklearn.preprocessing import StandardScaler
 
+import warnings
+warnings.filterwarnings("ignore")
 
 def encode_onehot(labels):
     classes = set(labels)
@@ -106,7 +108,7 @@ def load_hon_data(edge_path=r"..\data\traces-simulated-original\edges.txt",
 
     idx_features = pd.read_csv(content_path, dtype=np.dtype(str))
     print(idx_features)
-    features = sp.csr_matrix(idx_features.iloc[:, 1:-1], dtype=np.float32)
+    # features = sp.csr_matrix(idx_features.iloc[:, 1:-1], dtype=np.float32)
     features = sp.csr_matrix(np.expand_dims(idx_features.iloc[:, 1], 1), dtype=np.float32)
     # labels = encode_onehot(idx_features_labels[:, -1])
 
@@ -175,7 +177,7 @@ def load_hon_data(edge_path=r"..\data\traces-simulated-original\edges.txt",
 
 def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
                         edge_path_origin="../data/traces-simulated-original/edges_label.txt",
-                        content_path=r"..\data\traces-simulated-original\traces.content"):
+                        content_path_hon=r"..\data\traces-simulated\traces.content"):
     """Load citation network dataset (cora only for now)"""
     print('Loading  dataset...')
 
@@ -185,19 +187,25 @@ def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt
     idx_origin_train = range(int(length_edge_path_origin * 0.1))
     idx_origin_val = range(int(length_edge_path_origin * 0.1), int(length_edge_path_origin * 0.2))
     idx_origin_test = range(int(length_edge_path_origin * 0.2), int(length_edge_path_origin * 1))
+    idx_origin_train_train =range(int(length_edge_path_origin * 0.2), int(length_edge_path_origin * 0.2) + int(len(idx_origin_test) * 0.7))
+    idx_origin_test_test =range(int(length_edge_path_origin * 0.2) + int(len(idx_origin_test) * 0.7), int(length_edge_path_origin * 0.2) + int(len(idx_origin_test)))
 
-    origin_train_label = edge_origin.iloc[idx_origin_train]['label']
-    origin_val_label = edge_origin.iloc[idx_origin_val]['label']
-    origin_test_label = edge_origin.iloc[idx_origin_test]['label']
+    origin_train_label = edge_origin.iloc[idx_origin_train]['label'].tolist()
+    origin_val_label = edge_origin.iloc[idx_origin_val]['label'].tolist()
+    origin_test_label = edge_origin.iloc[idx_origin_test]['label'].tolist()
+    idx_origin_test_train_label = edge_origin.iloc[idx_origin_train_train]['label'].tolist()
+    idx_origin_test_test_label = edge_origin.iloc[idx_origin_test_test]['label'].tolist()
+
+    origin_edge_test_test = edge_origin.iloc[idx_origin_test_test]
 
 
-    idx_features = pd.read_csv(content_path, dtype=np.dtype(str))
+
+    idx_features = pd.read_csv(content_path_hon, dtype=np.dtype(str))
     features = sp.csr_matrix(np.expand_dims(idx_features.iloc[:, 1], 1), dtype=np.float32)
     # labels = encode_onehot(idx_features_labels[:, -1])
 
     # build graph
-#    idx = np.array([i for i in range(len(idx_features))], dtype=np.int32)  # 自己的高阶数据
-    idx = idx_features.values[:, 0]
+    idx = idx_features["idx"]
     idx_map = {j: i for i, j in enumerate(idx)}
 
     # 读取高阶网络的边
@@ -205,6 +213,7 @@ def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt
     edges_unordered = np.array(edge_hon.iloc[:, 1:3])
     edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
                      dtype=np.int32).reshape(edges_unordered.shape)
+    edges_with_labed =np.concatenate((edges, np.array(edge_hon.iloc[:, 3]).reshape(edges.shape[0], -1)), axis=1)
     adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
                         shape=(idx_features.shape[0], idx_features.shape[0]),
                         dtype=np.float32)
@@ -215,11 +224,12 @@ def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt
     # features = normalize(features)
     adj = normalize(adj + sp.eye(adj.shape[0]))
 
-    # G = get_Graph(edges_unordered, idx_map)
-
-    G = nx.Graph(edges)
-    pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test \
-        = sample_pos_neg_sets_label(G, edge_hon, origin_train_label, origin_val_label, origin_test_label)
+    G = nx.Graph(edges[:, :2].tolist())
+    edges_with_labed = pd.DataFrame(edges_with_labed, columns=['node1', 'node2', 'label'])
+    edges_hon, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test,\
+    id_pos_edge_test_train_hon, id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test = \
+        sample_pos_neg_sets_label(G, edges_with_labed, origin_train_label, origin_val_label, origin_test_label,
+        idx_origin_test_train_label, idx_origin_test_test_label)
 
     features = torch.FloatTensor(np.array(features.todense()))
     # labels = torch.LongTensor(np.where(labels)[1])
@@ -228,12 +238,17 @@ def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt
     idx_pos_train = torch.LongTensor(idx_pos_train)
     idx_pos_val = torch.LongTensor(idx_pos_val)
     idx_pos_test = torch.LongTensor(idx_pos_test)
+    id_pos_edge_test_train_hon = torch.LongTensor(idx_pos_train)
+    id_pos_edge_test_test_hon = torch.LongTensor(id_pos_edge_test_test_hon)
 
     idx_neg_train = torch.LongTensor(idx_neg_train)
     idx_neg_val = torch.LongTensor(idx_neg_val)
     idx_neg_test = torch.LongTensor(idx_neg_test)
+    idx_neg_test_train = torch.LongTensor(idx_neg_test_train)
+    idx_neg_test_test = torch.LongTensor(idx_neg_test_test)
 
-    return adj, features, pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test
+    return adj, features, edges_hon, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test, \
+           id_pos_edge_test_train_hon, id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test, origin_edge_test_test
 
 
 def normalize(mx):
@@ -285,7 +300,6 @@ def _link_prediction(loop, node1_emb_list, node2_emb_list, labels, split_ratio=0
         print(classification_report(y_test, y_pred))
         return
 
-
     if fit_method == 'LogisticRegression':
         clf = LogisticRegression(class_weight='balanced', solver='liblinear', max_iter=5000)
         clf.fit(x_train, y_train)
@@ -313,6 +327,73 @@ def link_prediction(node1_emb_list, node2_emb_list, labels, cal_edge_method="Had
     eval_dict = {'auc': 0.0, 'pr': 0.0, 'f1': 0.0, 'f1-micro': 0.0, 'f1-macro': 0.0}
     for i in range(loop):
         tmp_dict = _link_prediction(i, node1_emb_list, node2_emb_list, labels, split_ratio, cal_edge_method, fit_method)
+        for key in tmp_dict.keys():
+            eval_dict[key] += tmp_dict[key]
+    for key in tmp_dict.keys():
+        eval_dict[key] = round((1.0 * eval_dict[key]) / loop, 4)
+    print('average performance')
+    print(eval_dict)
+    return eval_dict
+
+def _link_prediction_label(loop, node1_emb_train_list, node2_emb_train_list, node1_emb_test_list, node2_emb_test_list,
+                           y_test_train, y_test_test, edge_test_test_hon_label, edge_test_test_origin_label, cal_edge_method='Hadamard'):
+    ft = np.zeros((len(node1_emb_train_list) + len(node1_emb_test_list), node1_emb_train_list.shape[1]))
+    node1_emb_list = np.concatenate((node1_emb_train_list, node1_emb_test_list))
+    node2_emb_list = np.concatenate((node2_emb_train_list, node2_emb_test_list))
+    for i, (node1_emb, node2_emb) in enumerate(zip(node1_emb_list, node2_emb_list)):
+        if cal_edge_method == 'Hadamard':
+            ft[i] = node1_emb * node2_emb
+        elif cal_edge_method == 'Average':
+            ft[i] == np.add(node1_emb, node2_emb) * 0.5
+    train_size = len(node1_emb_train_list)
+
+    x_train = ft[:train_size]
+    y_train = y_test_train
+    x_test = ft[train_size:]
+    y_test = y_test_test
+
+    clf = LogisticRegression(class_weight='balanced', solver='liblinear', max_iter=5000)
+    clf.fit(x_train, y_train)
+    y_pred = clf.predict(x_test)
+    y_pred = y_pred.reshape(y_pred.shape[0], -1)
+    y_score = clf.predict_proba(x_test)[:, -1]
+    y_score = y_score.reshape(y_score.shape[0], -1)
+
+    edge_test_test_hon_label = edge_test_test_hon_label.reshape(y_score.shape[0], -1)
+
+    y_score_label = np.concatenate((y_score, edge_test_test_hon_label), axis=1)
+    y_score_label = pd.DataFrame(y_score_label, columns=['score', 'label'])
+    y_score_label_mean = y_score_label.groupby('label').score.agg(['mean'])
+
+    y_pred_label = np.concatenate((y_pred, edge_test_test_hon_label), axis=1)
+    y_pred_label = pd.DataFrame(y_pred_label, columns=['score', 'label'])
+    y_pred_label_mean = y_pred_label.groupby('label').score.agg(['mean'])
+
+    threshold = 0.5
+
+    y_pred_calss = [int(item > threshold) for item in y_pred_label_mean.values]
+
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, y_score_label_mean)
+    y_pred_score = [int(item > threshold) for item in y_score_label_mean.values]
+    y_pred = y_pred_calss
+    eval_dict = {'auc': metrics.auc(fpr, tpr),
+                 'pr': metrics.average_precision_score(y_test, y_pred),
+                 'f1': metrics.f1_score(y_test, y_pred),
+                 'f1-micro': metrics.f1_score(y_test, y_pred, average='micro'),
+                 'f1-macro': metrics.f1_score(y_test, y_pred, average='macro')}
+    if loop % 10 == 0:
+        print(eval_dict)
+    return eval_dict
+
+
+def link_prediction_label(node1_emb_train_list, node2_emb_train_list, node1_emb_test_list, node2_emb_test_list, y_test_train, y_test_test,
+                          edge_test_test_hon_label, edge_test_test_origin_label, cal_edge_method="Hadamard", loop=50):
+    print("link_prediction by {}".format('LR'))
+
+    eval_dict = {'auc': 0.0, 'pr': 0.0, 'f1': 0.0, 'f1-micro': 0.0, 'f1-macro': 0.0}
+    for i in range(loop):
+        tmp_dict = _link_prediction_label(i, node1_emb_train_list, node2_emb_train_list, node1_emb_test_list, node2_emb_test_list,
+                                          y_test_train, y_test_test, edge_test_test_hon_label, edge_test_test_origin_label, cal_edge_method)
         for key in tmp_dict.keys():
             eval_dict[key] += tmp_dict[key]
     for key in tmp_dict.keys():
@@ -360,13 +441,19 @@ def sample_pos_neg_sets(G, data_usage=1.0):
 
 
 # 采样正负节点 使用节点映射
-def sample_pos_neg_sets_label(G, edge, origin_train_label, origin_val_label, origin_test_label, data_usage=1.0):
+def sample_pos_neg_sets_label(G, edge, origin_train_label, origin_val_label, origin_test_label,
+                              idx_origin_test_train_label, idx_origin_test_test_label):
     # 高阶网络的正采样边
-    id_pos_edge_train_hon = edge[edge['label'] in origin_train_label].index.tolist()
-    id_pos_edge_val_hon = edge[edge['label'] in origin_val_label].index.tolist()
-    id_pos_edge_test_hon = edge[edge['label'] in origin_test_label].index.tolist()
-    pos_edges = pd.concat([edge[edge['label'] in origin_train_label], edge[edge['label'] in origin_val_label],
-                           edge[edge['label'] in origin_test_label]])
+    id_pos_edge_train_hon = edge.loc[edge['label'].isin(origin_train_label)].index.tolist()
+    id_pos_edge_val_hon = edge.loc[edge['label'].isin(origin_val_label)].index.tolist()
+    id_pos_edge_test_hon = edge.loc[edge['label'].isin(origin_test_label)].index.tolist()
+    id_pos_edge_test_train_hon = edge.loc[edge['label'].isin(idx_origin_test_train_label)].index.tolist()
+    # tmp = edge.loc[edge['label'].isin(idx_origin_test_test_label)]
+    id_pos_edge_test_test_hon = edge.loc[edge['label'].isin(idx_origin_test_test_label)].index.tolist()
+    # 这里面的pos_edges 是带有label的高阶网络的边
+    # tmp2 = edge.loc[edge['label'].isin(origin_test_label)]
+    # pos_edges = pd.concat([edge.loc[edge['label'].isin(origin_train_label)], edge.loc[edge['label'].isin(origin_val_label)],
+    #                        edge.loc[edge['label'].isin(origin_test_label)]])
     lenght_hon_pos_edges = len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + len(id_pos_edge_test_hon)
 
 
@@ -374,16 +461,20 @@ def sample_pos_neg_sets_label(G, edge, origin_train_label, origin_val_label, ori
     neg_edges = np.array(sample_neg_sets(G, lenght_hon_pos_edges, set_size=set_size), dtype=np.int32)
     length_neg_edges = neg_edges.shape[0]
     tmp = neg_edges[-(lenght_hon_pos_edges - length_neg_edges):, :]  # 把去重删除的neg边补齐
-    neg_edges = np.append(neg_edges, tmp, axis=0)
+    neg_edges = pd.DataFrame(np.append(neg_edges, tmp, axis=0), columns=['node1', 'node2'])
+    neg_edges['label'] = -1
     length_neg_edges = neg_edges.shape[0]
 
     # 暂时写死，后面需要根据数据进行调整
-    idx_neg_train = range(int(length_neg_edges * 0.1))
-    idx_neg_val = range(int(length_neg_edges * 0.1), int(length_neg_edges * 0.2))
-    idx_neg_test = range(int(length_neg_edges * 0.2), int(length_neg_edges * 1))
+    idx_neg_train = range(len(id_pos_edge_train_hon))
+    idx_neg_val = range(len(id_pos_edge_train_hon), len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon))
+    idx_neg_test = range(len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon), length_neg_edges)
+    idx_neg_test_train = range(len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon), int(len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + len(idx_neg_test) * 0.7))
+    idx_neg_test_test = range(len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + int(len(idx_neg_test) * 0.7), len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + int(len(idx_neg_test) * 0.7) + len(idx_origin_test_test_label))
 
-    return np.array(pos_edges), np.array(
-        neg_edges), id_pos_edge_train_hon, id_pos_edge_val_hon, id_pos_edge_test_hon, idx_neg_train, idx_neg_val, idx_neg_test
+    return np.array(edge), np.array(neg_edges), id_pos_edge_train_hon, id_pos_edge_val_hon, \
+           id_pos_edge_test_hon, idx_neg_train, idx_neg_val, idx_neg_test, id_pos_edge_test_train_hon, \
+           id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test
 
 def sample_neg_sets(G, n_samples, set_size):
     neg_sets = []

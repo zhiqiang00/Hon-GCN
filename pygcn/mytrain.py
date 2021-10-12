@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from pygcn.utils import load_data, accuracy, load_hon_data, link_prediction, load_hon_data_label
+from pygcn.utils import load_data, accuracy, load_hon_data, link_prediction, load_hon_data_label, link_prediction_label
 from pygcn.models import GCN
 
 # Training settings
@@ -40,26 +40,30 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 # Load data
-adj, features, pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, \
-idx_neg_test = load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
+adj, features, edges_hon, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, \
+idx_neg_test, id_pos_edge_test_train_hon, id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test, \
+origin_edge_test_test = load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
                         edge_path_origin="../data/traces-simulated-original/edges_label.txt",
-                        content_path=r"..\data\traces-simulated-original\traces.content")
-
-y_true_test = np.array([1] * len(idx_pos_test) + [0] * len(idx_neg_test))
+                        content_path_hon=r"..\data\traces-simulated\traces.content")
+# edge_test_test_hon_label = np.append(edges_hon[id_pos_edge_test_test_hon, -1], neg_edges[idx_neg_test_test, -1], axis=0)
+edge_test_test_hon_label = edges_hon[id_pos_edge_test_test_hon, -1]
+edge_test_test_origin_label = np.array(origin_edge_test_test['label'])
+y_test_train = np.array([1] * len(id_pos_edge_test_train_hon) + [0] * len(idx_neg_test_train))
+# y_test_test = np.array([1] * len(origin_edge_test_test) + [0] * len(idx_neg_test_test))
+y_test_test = np.array([1] * len(origin_edge_test_test))
 # Model and optimizer
 model = GCN(nfeat=features.shape[1],
             nhid=args.hidden,
             nclass=7,  # 最后输出结果为7维
             dropout=args.dropout)
-optimizer = optim.Adam(model.parameters(),
-                       lr=args.lr, weight_decay=args.weight_decay)
+optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 # 最后需要修改
 if args.cuda:
     model.cuda()
     features = features.cuda()
     adj = adj.cuda()
-    pos_edges = pos_edges.cuda()
+    edges_hon = edges_hon.cuda()
     neg_edges = neg_edges.cuda()
     idx_pos_train = idx_pos_train.cuda()
     idx_pos_val = idx_pos_val.cuda()
@@ -71,8 +75,8 @@ if args.cuda:
 
 
 def train(epoch):
-    pos_node1_emb_list = pos_edges[idx_pos_train][:, 0]
-    pos_node2_emb_list = pos_edges[idx_pos_train][:, 1]
+    pos_node1_emb_list = edges_hon[idx_pos_train][:, 0]
+    pos_node2_emb_list = edges_hon[idx_pos_train][:, 1]
     neg_node1_emb_list = neg_edges[idx_neg_train][:, 0]
     neg_node2_emb_list = neg_edges[idx_neg_train][:, 1]
 
@@ -112,15 +116,11 @@ def train(epoch):
     model.eval()
     val_loss = []
     with torch.no_grad():
-        pos_node1_emb_list = pos_edges[idx_pos_val][:, 0]
-        pos_node2_emb_list = pos_edges[idx_pos_val][:, 1]
+        pos_node1_emb_list = edges_hon[idx_pos_val][:, 0]
+        pos_node2_emb_list = edges_hon[idx_pos_val][:, 1]
         neg_node1_emb_list = neg_edges[idx_neg_val][:, 0]
         neg_node2_emb_list = neg_edges[idx_neg_val][:, 1]
 
-        # pos_node = np.unique(np.vstack((pos_node1_emb_list, pos_node2_emb_list)))
-        # neg_node = np.unique(np.vstack((neg_node1_emb_list, neg_node2_emb_list)))
-        # pos_features = features[pos_node, :]
-        # # neg_features = features[neg_node, :]
         t = time.time()
         pos_node1_emb = output[pos_node1_emb_list]
         pos_node2_emb = output[pos_node2_emb_list]
@@ -147,13 +147,10 @@ def train(epoch):
 def test():
     model.eval()
     with torch.no_grad():
-        pos_proba_list = []
-        neg_proba_list = []
-        auc_list = []
-        ap_list = []
         output = model(features, adj)
-        pos_node1_emb_list = pos_edges[idx_pos_test][:, 0]
-        pos_node2_emb_list = pos_edges[idx_pos_test][:, 1]
+
+        '''pos_node1_emb_list = edges_hon[idx_pos_test][:, 0]
+        pos_node2_emb_list = edges_hon[idx_pos_test][:, 1]
         neg_node1_emb_list = neg_edges[idx_neg_test][:, 0]
         neg_node2_emb_list = neg_edges[idx_neg_test][:, 1]
 
@@ -162,12 +159,45 @@ def test():
         pos_node2_emb = output[pos_node2_emb_list]
         neg_node1_emb = output[neg_node1_emb_list]
         neg_node2_emb = output[neg_node2_emb_list]
+        
         node1_emb_list = np.append(pos_node1_emb, neg_node1_emb, axis=0)
-        node2_emb_list = np.append(pos_node2_emb, neg_node2_emb, axis=0)
+        node2_emb_list = np.append(pos_node2_emb, neg_node2_emb, axis=0)'''
+        # 获取test数据里面的作为train和test的节点list
+        pos_node1_emb_train_list = edges_hon[id_pos_edge_test_train_hon][:, 0]
+        pos_node2_emb_train_list = edges_hon[id_pos_edge_test_train_hon][:, 1]
+        neg_node1_emb_train_list = neg_edges[idx_neg_test_train][:, 0]
+        neg_node2_emb_train_list = neg_edges[idx_neg_test_train][:, 1]
+
+        pos_node1_emb_test_list = edges_hon[id_pos_edge_test_test_hon][:, 0]
+        pos_node2_emb_test_list = edges_hon[id_pos_edge_test_test_hon][:, 1]
+        neg_node1_emb_test_list = neg_edges[idx_neg_test_test][:, 0]
+        neg_node2_emb_test_list = neg_edges[idx_neg_test_test][:, 1]
+
+
+        # 根据上面的id取出embedding
+        pos_node1_train_emb = output[pos_node1_emb_train_list]
+        pos_node2_train_emb = output[pos_node2_emb_train_list]
+        neg_node1_train_emb = output[neg_node1_emb_train_list]
+        neg_node2_train_emb = output[neg_node2_emb_train_list]
+
+        pos_node1_test_emb = output[pos_node1_emb_test_list]
+        pos_node2_test_emb = output[pos_node2_emb_test_list]
+        neg_node1_test_emb = output[neg_node1_emb_test_list]
+        neg_node2_test_emb = output[neg_node2_emb_test_list]
+
+        node1_emb_train_list = np.append(pos_node1_train_emb, neg_node1_train_emb, axis=0)
+        node2_emb_train_list = np.append(pos_node2_train_emb, neg_node2_train_emb, axis=0)
+        # node1_emb_test_list = np.append(pos_node1_test_emb, neg_node1_test_emb, axis=0)
+        # node2_emb_test_list = np.append(pos_node2_test_emb, neg_node2_test_emb, axis=0)
+        node1_emb_test_list = pos_node1_test_emb
+        node2_emb_test_list = pos_node2_test_emb
+
 
 
         # 运行链接预测代码
-        link_prediction(node1_emb_list, node2_emb_list, y_true_test, cal_edge_method="Hadamard", split_ratio=0.7, fit_method='LogisticRegression', loop=50) #fit_method='LogisticRegression'
+        link_prediction_label(node1_emb_train_list, node2_emb_train_list, node1_emb_test_list, node2_emb_test_list,
+                              y_test_train, y_test_test, edge_test_test_hon_label, edge_test_test_origin_label,
+                        cal_edge_method="Hadamard", loop=50)
 
     #     pos_node1_emb = pos_node1_emb.view(-1, 1, pos_node1_emb.shape[1])
     #     pos_node2_emb = pos_node2_emb.view(-1, pos_node2_emb.shape[1], 1)
