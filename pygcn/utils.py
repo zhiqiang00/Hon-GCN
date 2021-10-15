@@ -13,6 +13,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 from sklearn.preprocessing import StandardScaler
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 def encode_onehot(labels):
@@ -69,7 +70,7 @@ def load_data(path="../data/cora/", dataset="cora"):
     labels = encode_onehot(idx_features_labels[:, -1])
 
     # build graph
-    idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
+    idx = np.array(idx_features_labels[:, 0], dtype=np .int32)
     idx_map = {j: i for i, j in enumerate(idx)}
     print(idx_map)
     edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset),
@@ -175,12 +176,50 @@ def load_hon_data(edge_path=r"..\data\traces-simulated-original\edges.txt",
     return adj, features, pos_edges, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test
 
 
+# 构建一个neg图，并进行label
+def sample_neg_graph(G, Path_hon_root, Path_original_root, n_samples=1000):
+    neg_sets = []
+    n_nodes = G.number_of_nodes()
+    nodes = G.nodes()
+    nodes = list(nodes)
+    while len(neg_sets) < n_samples:
+        candid_set = [int(random.random() * n_nodes) for _ in range(2)]
+        node1, node2 = nodes[candid_set[0]], nodes[candid_set[1]]
+        if not G.has_edge(node1, node2):
+            neg_sets.append(candid_set)
+
+    neg_sets = np.array(neg_sets)
+    neg_sets = np.unique(neg_sets, axis=0)
+    neg_sets = neg_sets.tolist()
+    f = open(Path_original_root + "edges_neg.txt", '+w')
+    for i in neg_sets:
+        s = [str(ss) for ss in i]
+        s = ' '.join(s) + '\n'
+        f.write(s)
+    f.close()
+    # neg_sets_label.to_csv(Path_original_root + "edges_neg_label.txt", index=True)
+    print("生成 neg graph done!")
+
+    # 开始进行neg graph的映射
+    # hon_to_originan(hon_path=Path_hon_root + "edges.txt",
+    #                 origin_path=Path_original_root + "edges_neg.txt",
+    #                 save_path=Path_hon_root + "edges_label_neg.txt",
+    #                 save_path_origin=Path_original_root + "edges_label_neg.txt",
+    #                 pos=-1, isPos=False)
+
+
 def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
                         edge_path_origin="../data/traces-simulated-original/edges_label.txt",
-                        content_path_hon=r"..\data\traces-simulated\traces.content"):
+                        content_path_hon=r"..\data\traces-simulated\traces.content",
+                        dataname=r"traces-simulated"):
+
     """Load citation network dataset (cora only for now)"""
     print('Loading  dataset...')
-
+    path_hon_root = r"../data/{}/".format(dataname)
+    path_original_root = r"../data/{}-original/".format(dataname)
+    edge_path_hon =  path_hon_root+  "edges_label.txt"
+    edge_path_origin = path_original_root + "edges_label.txt"
+    content_path_hon = path_hon_root + "traces.content"
     # 生成原始网络的train val test 数据集
     edge_origin = pd.read_csv(edge_path_origin)
     length_edge_path_origin = edge_origin.shape[0]
@@ -225,6 +264,8 @@ def load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt
     adj = normalize(adj + sp.eye(adj.shape[0]))
 
     G = nx.Graph(edges[:, :2].tolist())
+
+
     edges_with_labed = pd.DataFrame(edges_with_labed, columns=['node1', 'node2', 'label'])
     edges_hon, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, idx_neg_test,\
     id_pos_edge_test_train_hon, id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test = \
@@ -457,8 +498,7 @@ def sample_pos_neg_sets_label(G, edge, origin_train_label, origin_val_label, ori
     lenght_hon_pos_edges = len(id_pos_edge_train_hon) + len(id_pos_edge_val_hon) + len(id_pos_edge_test_hon)
 
 
-    set_size = 2
-    neg_edges = np.array(sample_neg_sets(G, lenght_hon_pos_edges, set_size=set_size), dtype=np.int32)
+    neg_edges = np.array(sample_neg_sets(G, lenght_hon_pos_edges, set_size=2), dtype=np.int32)
     length_neg_edges = neg_edges.shape[0]
     tmp = neg_edges[-(lenght_hon_pos_edges - length_neg_edges):, :]  # 把去重删除的neg边补齐
     neg_edges = pd.DataFrame(np.append(neg_edges, tmp, axis=0), columns=['node1', 'node2'])

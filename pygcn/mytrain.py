@@ -42,9 +42,11 @@ if args.cuda:
 # Load data
 adj, features, edges_hon, neg_edges, idx_pos_train, idx_pos_val, idx_pos_test, idx_neg_train, idx_neg_val, \
 idx_neg_test, id_pos_edge_test_train_hon, id_pos_edge_test_test_hon, idx_neg_test_train, idx_neg_test_test, \
-origin_edge_test_test = load_hon_data_label(edge_path_hon=r"..\data\traces-simulated\edges_label.txt",
-                        edge_path_origin="../data/traces-simulated-original/edges_label.txt",
-                        content_path_hon=r"..\data\traces-simulated\traces.content")
+origin_edge_test_test = load_hon_data_label(dataname="traces-1000")
+# load_hon_data_label(edge_path_hon=r"..\data\traces-1000\edges_label.txt", # traces-simulated
+#                                             content_path_hon=r"..\data\traces-1000\traces.content",# traces-simulated
+#                                             edge_path_origin=r"..\data\traces-1000-original\edges_label.txt",
+#                                             dataname=r"traces-1000")# traces-simulated-original
 # edge_test_test_hon_label = np.append(edges_hon[id_pos_edge_test_test_hon, -1], neg_edges[idx_neg_test_test, -1], axis=0)
 edge_test_test_hon_label = edges_hon[id_pos_edge_test_test_hon, -1]
 edge_test_test_origin_label = np.array(origin_edge_test_test['label'])

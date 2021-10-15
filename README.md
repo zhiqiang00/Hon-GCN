@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Graph Convolutional Networks in PyTorch
 ====
 
@@ -44,3 +45,6 @@ Please cite our paper if you use this code in your own work:
   year={2016}
 }
 ```
+=======
+# Hon-GCN
+>>>>>>> 6e0aab5403d1f7e1607d562ac64d4b686a00c632
